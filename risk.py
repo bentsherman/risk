@@ -11,21 +11,22 @@ import random
 
 
 class GameState():
-    STARTING_UNITS = {
-        2: 50,
-        3: 35,
-        4: 30,
-        5: 25,
-        6: 20
-    }
+    def __init__(self, grid_size=8, grid_remove=0.25, grid_perturb=0.25, n_players=2, n_starting_units=50):
+        # validate arguments
+        n_nodes = grid_size ** 2
 
-    def __init__(self, grid_dim=[8, 8], grid_remove=0.1, grid_perturb=0.25, n_players=2):
+        if n_nodes < n_players:
+            raise ValueError('Not enough grid points for all players')
+
+        if n_players * n_starting_units < n_nodes:
+            raise ValueError('Players do not have enough starting units to occupy the entire grid')
+
         # initialize figure
         self._fig = plt.figure(figsize=(12, 12))
         self._frames = 0
 
         # initialize graph
-        G = nx.generators.grid_graph(dim=grid_dim, periodic=False)
+        G = nx.generators.grid_graph(dim=[grid_size, grid_size], periodic=False)
 
         for v in G.nodes:
             G.nodes[v]['pos'] = v
@@ -53,7 +54,7 @@ class GameState():
             G.nodes[v]['pos'] = x, y
 
         # initialize players
-        players = [{'id': i + 1, 'n_units': self.STARTING_UNITS[n_players]} for i in range(n_players)]
+        players = [{'id': i + 1, 'n_units': n_starting_units} for i in range(n_players)]
 
         # assign nodes randomly to players
         unclaimed_nodes = list(G.nodes)
@@ -135,7 +136,7 @@ class GameState():
 
         # raise error if attacking node doesn't have enough units
         if G.nodes[v_attack]['n_units'] == 1:
-            raise ValueError('attacking node doesn\'t have enough units!')
+            raise ValueError('Attacking node doesn\'t have enough units!')
 
         # determine the number of units available to attack and defend
         n_units_attack = G.nodes[v_attack]['n_units'] - 1
@@ -267,16 +268,17 @@ class GameState():
 def main():
     # parse command-line arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--n-players', help='number of players', default=2)
-    parser.add_argument('--n-rounds', help='number of rounds', default=10)
+    parser.add_argument('--grid-size', help='size of each grid dimension', type=int, default=8)
+    parser.add_argument('--n-players', help='number of players', type=int, default=2)
+    parser.add_argument('--n-frames', help='number of frames to render', type=int, default=100)
 
     args = parser.parse_args()
 
     # initialize game state
-    game = GameState(n_players=args.n_players)
+    game = GameState(grid_size=args.grid_size, n_players=args.n_players)
 
     # initialize animation
-    anim = mpl.animation.FuncAnimation(game._fig, game.render, frames=game.animate, interval=500)
+    anim = mpl.animation.FuncAnimation(game._fig, game.render, frames=game.animate, save_count=args.n_frames, interval=500)
     anim.save('risk.mp4')
 
 
