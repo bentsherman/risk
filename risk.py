@@ -53,7 +53,10 @@ class GameState():
                 self._graph.nodes[v]['n_units'] += 1
                 player['n_units'] -= 1
 
-    def render(self, node_updates=[]):
+    def render(self, args):
+        # unpack arguments
+        node_updates, text = args
+
         # print frame number
         print('rendering frame %d' % (self._frames))
         self._frames += 1
@@ -75,16 +78,26 @@ class GameState():
         cmap = plt.get_cmap('Accent')
         smap = cm.ScalarMappable(norm=norm, cmap=cmap)
 
-        for player in self._players:
-            color = smap.to_rgba(player['id'])
-            label = 'Player %d' % (player['id'])
-            plt.plot([0], [0], 'o', color=color, label=label, markersize=1)
-
         # draw graph
         nx.draw_networkx(self._graph, pos=pos, with_labels=False, node_size=sizes, node_color=colors, labels=labels, cmap=cmap, edgecolors=edgecolors)
 
+        xmin, xmax = plt.xlim()
+        ymin, ymax = plt.ylim()
+
+        for player in self._players:
+            color = smap.to_rgba(player['id'])
+            label = 'Player %d' % (player['id'])
+            plt.plot([-10], [-10], 'o', color=color, label=label, markersize=10)
+
+        plt.xlim(xmin, xmax)
+        plt.ylim(ymin, ymax)
+
         # draw legend
-        plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5), markerscale=10)
+        plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+
+        # draw text annotation if specified
+        if text != None:
+            plt.text(xmin, ymax * 1.05, text)
 
     def roll_dice(self, n_dice):
         return sorted([random.randint(1, 6) for i in range(n_dice)], reverse=True)
@@ -140,8 +153,6 @@ class GameState():
             return
 
         # place reinforcements
-        print('player %d placing %d reinforcements' % (player['id'], n_reinforcements))
-
         node_updates = []
 
         while player['n_units'] > 0:
@@ -150,7 +161,8 @@ class GameState():
             player['n_units'] -= 1
             node_updates.append(v)
 
-        yield (node_updates)
+        # render updated graph
+        yield (node_updates, 'Player %d placed %d reinforcements' % (player['id'], n_reinforcements))
 
         # perform attacks
         valid_nodes = [v for v in player_nodes if self._graph.nodes[v]['n_units'] > 1]
@@ -169,22 +181,22 @@ class GameState():
             # select a random neighbor to attack
             w = random.choice(enemy_neighbors)
 
-            # perform attack
-            print('player %d attacking from %s with %d units, player %d defending from %s with %d units' % (
+            # render updated graph
+            yield ([v, w], 'Player %d attacking from %s with %d units, Player %d defending from %s with %d units' % (
                 self._graph.nodes[v]['player_id'], v, self._graph.nodes[v]['n_units'],
                 self._graph.nodes[w]['player_id'], w, self._graph.nodes[w]['n_units']
             ))
 
-            yield ([v, w])
+            # perform attack
+            success = self.do_attack(v, w)
 
-            result = self.do_attack(v, w)
-
-            if result:
-                print('attacking player won!')
+            # render updated graph
+            if success:
+                text = 'Attacking player won!'
             else:
-                print('defending player won!')
+                text = 'Defending player won!'
 
-            yield ([v, w])
+            yield ([v, w], text)
 
     def do_round(self):
         # perform each player's turn
@@ -203,7 +215,7 @@ class GameState():
 
     def animate(self):
         # draw initial state
-        yield ()
+        yield ([], None)
 
         # play for several rounds
         while True:
@@ -214,7 +226,7 @@ class GameState():
             player_id = self.check_winner()
 
             if player_id != None:
-                print('player %d won!' % (player_id))
+                yield ([], 'Player %d won!' % (player_id))
                 break
 
 
