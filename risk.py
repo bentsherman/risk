@@ -1,6 +1,8 @@
 import argparse
 import matplotlib as mpl
 import matplotlib.animation
+import matplotlib.colors
+import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import networkx as nx
 import random
@@ -59,16 +61,30 @@ class GameState():
         # determine colors
         pos = {node: node for node in self._graph.nodes}
         sizes = [500 * self._graph.nodes[v]['n_units'] for v in self._graph.nodes]
-        colors = [self._graph.nodes[v]['player_id'] / (len(self._players) - 1) for v in self._graph.nodes]
+        colors = [self._graph.nodes[v]['player_id'] / len(self._players) for v in self._graph.nodes]
         labels = {v: self._graph.nodes[v]['n_units'] for v in self._graph.nodes}
 
         # highlight updated nodes
         edgecolors = [('r' if v in node_updates else 'w') for v in self._graph.nodes]
 
-        # draw graph
+        # clear figure
         plt.clf()
-        nx.draw_networkx(self._graph, pos=pos, with_labels=False, node_size=sizes, node_color=colors, labels=labels, cmap='Accent', edgecolors=edgecolors)
-        plt.show()
+
+        # plot dummy points for legend
+        norm = mpl.colors.Normalize(vmin=1, vmax=len(self._players))
+        cmap = plt.get_cmap('Accent')
+        smap = cm.ScalarMappable(norm=norm, cmap=cmap)
+
+        for player in self._players:
+            color = smap.to_rgba(player['id'])
+            label = 'Player %d' % (player['id'])
+            plt.plot([0], [0], 'o', color=color, label=label, markersize=1)
+
+        # draw graph
+        nx.draw_networkx(self._graph, pos=pos, with_labels=False, node_size=sizes, node_color=colors, labels=labels, cmap=cmap, edgecolors=edgecolors)
+
+        # draw legend
+        plt.legend(loc='center left', bbox_to_anchor=(1.0, 0.5), markerscale=10)
 
     def roll_dice(self, n_dice):
         return sorted([random.randint(1, 6) for i in range(n_dice)], reverse=True)
