@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import networkx.algorithms
 import random
+import time
 
 
 
@@ -351,8 +352,17 @@ def main():
     game = GameState(grid_size=args.grid_size, n_players=args.n_players)
 
     # initialize animation
+    t0 = time.perf_counter()
+
     anim = mpl.animation.FuncAnimation(game._fig, game.render, frames=game.animate, save_count=args.n_frames, interval=args.frame_interval)
     anim.save('risk.mp4')
+
+    t1 = time.perf_counter()
+
+    # print performance metrics
+    t = t1 - t0
+    q = args.n_frames / t
+    print('processing time: %.3f s, %.3f frames / s' % (t, q))
 
 
 
