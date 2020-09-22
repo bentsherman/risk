@@ -111,7 +111,7 @@ class GameState():
         # determine graph attributes
         G = self._graph
         pos = {v: G.nodes[v]['pos'] for v in G.nodes}
-        sizes = [500 * G.nodes[v]['n_units'] for v in G.nodes]
+        sizes = [(300 + 300 * G.nodes[v]['n_units']) for v in G.nodes]
         colors = [G.nodes[v]['player_id'] / len(self._players) for v in G.nodes]
         labels = {v: G.nodes[v]['n_units'] for v in G.nodes}
 
@@ -127,7 +127,16 @@ class GameState():
         smap = cm.ScalarMappable(norm=norm, cmap=cmap)
 
         # draw graph
-        nx.draw_networkx(G, pos=pos, with_labels=False, node_size=sizes, node_color=colors, labels=labels, cmap=cmap, edgecolors=edgecolors)
+        nx.draw_networkx(
+            G,
+            pos=pos,
+            with_labels=False,
+            node_size=sizes,
+            node_color=colors,
+            labels=labels,
+            cmap=cmap,
+            linewidths=2.0,
+            edgecolors=edgecolors)
 
         # plot dummy points for legend
         xmin, xmax = plt.xlim()
@@ -163,6 +172,10 @@ class GameState():
                 player['cards'].remove(c)
 
         return card_trio
+
+    def get_enemy_neighbors(self, v):
+        G = self._graph
+        return [w for w in G.neighbors(v) if G.nodes[v]['player_id'] != G.nodes[w]['player_id']]
 
     def roll_dice(self, n_dice):
         return sorted([random.randint(1, 6) for i in range(n_dice)], reverse=True)
@@ -229,15 +242,16 @@ class GameState():
             n_reinforcements += self._current_card_bonus
             self._current_card_bonus += 5
 
-        # place reinforcements
-        player['n_units'] = n_reinforcements
-        node_updates = []
+        # determine threat level of each node
+        weights = [self.get_enemy_neighbors(v) for v in player_nodes]
+        weights = [sum(G.nodes[v]['n_units'] for v in nodes) for nodes in weights]
 
-        while player['n_units'] > 0:
-            v = random.choice(player_nodes)
+        # place reinforcements, weighted by threat level
+        placements = random.choices(player_nodes, weights=weights, k=n_reinforcements)
+        node_updates = set(placements)
+
+        for v in placements:
             G.nodes[v]['n_units'] += 1
-            player['n_units'] -= 1
-            node_updates.append(v)
 
         # render updated graph
         yield (node_updates, 'Player %d placed %d reinforcements' % (player['id'], n_reinforcements))
@@ -248,7 +262,7 @@ class GameState():
 
         for v in valid_nodes:
             # determine whether this node has enemy neighbors
-            enemy_neighbors = [w for w in list(G.neighbors(v)) if G.nodes[w]['player_id'] != player['id']]
+            enemy_neighbors = self.get_enemy_neighbors(v)
 
             if len(enemy_neighbors) == 0:
                 continue
