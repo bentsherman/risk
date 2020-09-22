@@ -1,4 +1,6 @@
 import argparse
+from collections import namedtuple
+import itertools
 import matplotlib as mpl
 import matplotlib.animation
 import matplotlib.colors
@@ -7,6 +9,16 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import networkx.algorithms
 import random
+
+
+
+CARD_TYPE_INFANTRY = 1
+CARD_TYPE_CAVALRY = 2
+CARD_TYPE_ARTILLERY = 3
+
+
+
+Card = namedtuple('Card', ['node', 'type'])
 
 
 
@@ -53,8 +65,13 @@ class GameState():
             y += random.uniform(-grid_perturb, grid_perturb)
             G.nodes[v]['pos'] = x, y
 
+        # initialize cards
+        card_types = [CARD_TYPE_INFANTRY, CARD_TYPE_CAVALRY, CARD_TYPE_ARTILLERY]
+        cards = [Card(v, t) for v, t in zip(G.nodes, itertools.cycle(card_types))]
+        random.shuffle(cards)
+
         # initialize players
-        players = [{'id': i + 1, 'n_units': n_starting_units} for i in range(n_players)]
+        players = [{'id': i + 1, 'n_units': n_starting_units, 'cards': []} for i in range(n_players)]
 
         # assign nodes randomly to players
         unclaimed_nodes = list(G.nodes)
@@ -78,6 +95,9 @@ class GameState():
 
         # save attributes
         self._graph = G
+        self._current_card_bonus = 5
+        self._cards = cards
+        self._discards = []
         self._players = players
 
     def render(self, args):
@@ -128,6 +148,22 @@ class GameState():
         if text != None:
             plt.text(xmin, ymax * 1.05, text, fontsize='x-large')
 
+    def get_card_trio(self, player):
+        # generate all subsets of size three in player hand
+        card_trio = None
+
+        for trio in itertools.combinations(player['cards'], 3):
+            if sum(c.type for c in trio) % 3 == 0:
+                card_trio = trio
+                break
+
+        # remove card trio from player hand if found
+        if card_trio != None:
+            for c in card_trio:
+                player['cards'].remove(c)
+
+        return card_trio
+
     def roll_dice(self, n_dice):
         return sorted([random.randint(1, 6) for i in range(n_dice)], reverse=True)
 
@@ -176,16 +212,25 @@ class GameState():
         # get current player
         player = self._players[i]
 
-        # compute reinforcements
-        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player['id']]
-        n_reinforcements = max(3, len(player_nodes) // 3)
-        player['n_units'] += n_reinforcements
-
         # skip turn if player was already eliminated
+        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player['id']]
+
         if len(player_nodes) == 0:
             return
 
+        # compute reinforcements from occupied nodes
+        n_reinforcements = max(3, len(player_nodes) // 3)
+
+        # trade cards for reinforcements if possible
+        card_trio = self.get_card_trio(player)
+
+        if card_trio != None:
+            self._discards += card_trio
+            n_reinforcements += self._current_card_bonus
+            self._current_card_bonus += 5
+
         # place reinforcements
+        player['n_units'] = n_reinforcements
         node_updates = []
 
         while player['n_units'] > 0:
@@ -198,6 +243,7 @@ class GameState():
         yield (node_updates, 'Player %d placed %d reinforcements' % (player['id'], n_reinforcements))
 
         # perform attacks
+        attack_success = False
         valid_nodes = [v for v in player_nodes if G.nodes[v]['n_units'] > 1]
 
         for v in valid_nodes:
@@ -225,11 +271,23 @@ class GameState():
 
             # render updated graph
             if success:
+                attack_success = True
                 text = 'Attacking player won!'
             else:
                 text = 'Defending player won!'
 
             yield ([v, w], text)
+
+        # draw card if player captured a node
+        if attack_success:
+            player['cards'].append(self._cards.pop())
+
+        # reset discards if card deck is empty
+        if len(self._cards) == 0:
+            self._cards = self._discards
+            self._discards = []
+
+            random.shuffle(self._cards)
 
     def do_round(self):
         # perform each player's turn
@@ -271,6 +329,7 @@ def main():
     parser.add_argument('--grid-size', help='size of each grid dimension', type=int, default=8)
     parser.add_argument('--n-players', help='number of players', type=int, default=2)
     parser.add_argument('--n-frames', help='number of frames to render', type=int, default=100)
+    parser.add_argument('--frame-interval', help='length of each frame in ms', type=int, default=500)
 
     args = parser.parse_args()
 
@@ -278,7 +337,7 @@ def main():
     game = GameState(grid_size=args.grid_size, n_players=args.n_players)
 
     # initialize animation
-    anim = mpl.animation.FuncAnimation(game._fig, game.render, frames=game.animate, save_count=args.n_frames, interval=500)
+    anim = mpl.animation.FuncAnimation(game._fig, game.render, frames=game.animate, save_count=args.n_frames, interval=args.frame_interval)
     anim.save('risk.mp4')
 
 
