@@ -23,6 +23,67 @@ Card = namedtuple('Card', ['node', 'type'])
 
 
 
+class Agent():
+    def __init__(self, game, id, n_units):
+        self.game = game
+        self.id = id
+        self.n_units = n_units
+        self.cards = []
+
+    def reinforce(self, n_reinforcements):
+        G = self.game._graph
+
+        # get list of all nodes occupied by player
+        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == self.id]
+
+        # determine threat level of each node
+        weights = [self.game.get_enemy_neighbors(v) for v in player_nodes]
+        weights = [sum(G.nodes[v]['n_units'] for v in nodes) for nodes in weights]
+
+        # place reinforcements, weighted by threat level
+        placements = random.choices(player_nodes, weights=weights, k=n_reinforcements)
+        node_updates = set(placements)
+
+        for v in placements:
+            G.nodes[v]['n_units'] += 1
+
+        return node_updates
+
+    def select_attack_target(self):
+        G = self.game._graph
+
+        # get list of all nodes occupied by player
+        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == self.id]
+
+        # perform an attack from each occupied node with some probability
+        attack_prob = 0.5
+        valid_nodes = [v for v in player_nodes if G.nodes[v]['n_units'] > 1]
+
+        for v in valid_nodes:
+            # determine whether this node has enemy neighbors
+            enemy_neighbors = self.game.get_enemy_neighbors(v)
+
+            if len(enemy_neighbors) == 0:
+                continue
+
+            # decide whether to attack from this node
+            if random.uniform(0, 1) < attack_prob:
+                continue
+
+            # select a random neighbor to attack
+            w = random.choice(enemy_neighbors)
+
+            # generate source-target pair for attack
+            yield v, w
+
+    def continue_attack(self, n_units_attack, n_units_defend):
+        return True
+
+    def move(self):
+        pass
+
+
+
 class GameState():
     def __init__(self, grid_size=8, grid_remove=0.25, grid_perturb=0.25, n_players=2, n_starting_units=50):
         # validate arguments
@@ -72,7 +133,7 @@ class GameState():
         random.shuffle(cards)
 
         # initialize players
-        players = [{'id': i + 1, 'n_units': n_starting_units, 'cards': []} for i in range(n_players)]
+        players = [Agent(self, i + 1, n_starting_units) for i in range(n_players)]
 
         # assign nodes randomly to players
         unclaimed_nodes = list(G.nodes)
@@ -80,19 +141,19 @@ class GameState():
 
         for i, v in enumerate(unclaimed_nodes):
             player = players[i % n_players]
-            G.nodes[v]['player_id'] = player['id']
+            G.nodes[v]['player_id'] = player.id
             G.nodes[v]['n_units'] += 1
-            player['n_units'] -= 1
+            player.n_units -= 1
 
         # reinforce each player's territories randomly
         for player in players:
             # get list of nodes occupied by player
-            player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player['id']]
+            player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player.id]
 
-            while player['n_units'] > 0:
+            while player.n_units > 0:
                 v = random.choice(player_nodes)
                 G.nodes[v]['n_units'] += 1
-                player['n_units'] -= 1
+                player.n_units -= 1
 
         # save attributes
         self._graph = G
@@ -144,8 +205,8 @@ class GameState():
         ymin, ymax = plt.ylim()
 
         for player in self._players:
-            color = smap.to_rgba(player['id'])
-            label = 'Player %d' % (player['id'])
+            color = smap.to_rgba(player.id)
+            label = 'Player %d' % (player.id)
             plt.plot([-10], [-10], 'o', color=color, label=label, markersize=10)
 
         plt.xlim(xmin, xmax)
@@ -162,7 +223,7 @@ class GameState():
         # generate all subsets of size three in player hand
         card_trio = None
 
-        for trio in itertools.combinations(player['cards'], 3):
+        for trio in itertools.combinations(player.cards, 3):
             if sum(c.type for c in trio) % 3 == 0:
                 card_trio = trio
                 break
@@ -170,7 +231,7 @@ class GameState():
         # remove card trio from player hand if found
         if card_trio != None:
             for c in card_trio:
-                player['cards'].remove(c)
+                player.cards.remove(c)
 
         return card_trio
 
@@ -181,7 +242,7 @@ class GameState():
     def roll_dice(self, n_dice):
         return sorted([random.randint(1, 6) for i in range(n_dice)], reverse=True)
 
-    def do_attack(self, v_attack, v_defend):
+    def do_attack(self, attacker, v_attack, v_defend):
         G = self._graph
 
         # raise error if attacking node doesn't have enough units
@@ -196,8 +257,8 @@ class GameState():
         G.nodes[v_attack]['n_units'] -= n_units_attack
         G.nodes[v_defend]['n_units'] -= n_units_defend
 
-        # do battle until one side wins
-        while n_units_attack > 0 and n_units_defend > 0:
+        # do battle until one side wins or attacker retreats
+        while n_units_attack > 0 and n_units_defend > 0 and attacker.continue_attack(n_units_attack, n_units_defend):
             # roll attack dice and defend dice
             dice_attack = self.roll_dice(min(n_units_attack, 3))
             dice_defend = self.roll_dice(min(n_units_defend, 2))
@@ -227,7 +288,7 @@ class GameState():
         player = self._players[i]
 
         # skip turn if player was already eliminated
-        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player['id']]
+        player_nodes = [v for v in G.nodes if G.nodes[v]['player_id'] == player.id]
 
         if len(player_nodes) == 0:
             return
@@ -243,38 +304,16 @@ class GameState():
             n_reinforcements += self._current_card_bonus
             self._current_card_bonus += 5
 
-        # determine threat level of each node
-        weights = [self.get_enemy_neighbors(v) for v in player_nodes]
-        weights = [sum(G.nodes[v]['n_units'] for v in nodes) for nodes in weights]
-
-        # place reinforcements, weighted by threat level
-        placements = random.choices(player_nodes, weights=weights, k=n_reinforcements)
-        node_updates = set(placements)
-
-        for v in placements:
-            G.nodes[v]['n_units'] += 1
+        # place reinforcements
+        node_updates = player.reinforce(n_reinforcements)
 
         # render updated graph
-        yield (node_updates, 'Player %d placed %d reinforcements' % (player['id'], n_reinforcements))
+        yield (node_updates, 'Player %d placed %d reinforcements' % (player.id, n_reinforcements))
 
         # perform attacks
         attack_success = False
-        valid_nodes = [v for v in player_nodes if G.nodes[v]['n_units'] > 1]
 
-        for v in valid_nodes:
-            # determine whether this node has enemy neighbors
-            enemy_neighbors = self.get_enemy_neighbors(v)
-
-            if len(enemy_neighbors) == 0:
-                continue
-
-            # decide whether to attack from this node
-            if random.uniform(0, 1) < 0.5:
-                continue
-
-            # select a random neighbor to attack
-            w = random.choice(enemy_neighbors)
-
+        for v, w in player.select_attack_target():
             # render updated graph
             yield ([v, w], 'Player %d attacking from %s with %d units, Player %d defending from %s with %d units' % (
                 G.nodes[v]['player_id'], v, G.nodes[v]['n_units'],
@@ -282,7 +321,7 @@ class GameState():
             ))
 
             # perform attack
-            success = self.do_attack(v, w)
+            success = self.do_attack(player, v, w)
 
             # render updated graph
             if success:
@@ -293,9 +332,12 @@ class GameState():
 
             yield ([v, w], text)
 
+        # move units
+        player.move()
+
         # draw card if player captured a node
         if attack_success:
-            player['cards'].append(self._cards.pop())
+            player.cards.append(self._cards.pop())
 
         # reset discards if card deck is empty
         if len(self._cards) == 0:
