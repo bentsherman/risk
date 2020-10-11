@@ -9,6 +9,7 @@ import networkx.algorithms
 import random
 
 from agent import DefaultAgent
+from graph import GridGraph
 
 
 
@@ -38,32 +39,7 @@ class GameState():
         self._frames = 0
 
         # initialize graph
-        G = nx.generators.grid_graph(dim=[grid_size, grid_size], periodic=False)
-
-        for v in G.nodes:
-            G.nodes[v]['pos'] = v
-            G.nodes[v]['player_id'] = None
-            G.nodes[v]['n_units'] = 0
-
-        # remove a random subset of nodes
-        remove_nodes = list(G.nodes)
-        random.shuffle(remove_nodes)
-        remove_nodes = remove_nodes[0 : int(len(remove_nodes) * grid_remove)]
-
-        G.remove_nodes_from(remove_nodes)
-
-        # extract the largest connected component
-        components = nx.algorithms.components.connected_components(G)
-        components = sorted(components, key=len, reverse=True)
-
-        G = G.subgraph(components[0])
-
-        # randomly perturb the position of each node
-        for v in G.nodes:
-            x, y = G.nodes[v]['pos']
-            x += random.uniform(-grid_perturb, grid_perturb)
-            y += random.uniform(-grid_perturb, grid_perturb)
-            G.nodes[v]['pos'] = x, y
+        G = GridGraph(grid_size, grid_remove, grid_perturb).create()
 
         # initialize cards
         card_types = [CARD_TYPE_INFANTRY, CARD_TYPE_CAVALRY, CARD_TYPE_ARTILLERY]
