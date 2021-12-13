@@ -1,0 +1,4 @@
+- implement unit movement
+- implement some basic agents: random, passive, aggresive
+- find a way to make the animation real-time and interactive
+- find a way to make the animation continue until the game ends
